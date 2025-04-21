@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Drawing;
+using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -25,6 +27,62 @@ public class PCG : MonoBehaviour
 		public bool m_IsDoorExist;
 	}
 
+    class Edge : IComparable<Edge>
+    {
+        public Edge(int from, int to, int distance)
+        {
+            this.From = from;
+            this.To = to;
+            this.Distance = distance;
+        }
+
+        public int From { get; private set; }
+        public int To { get; private set; }
+        private int Distance { get; set; }
+        public int CompareTo(Edge edge)
+        {
+	        return this.Distance.CompareTo(edge.Distance);
+        }
+    }
+
+    public int ManHatten(Vector2Int p1, Vector2Int p2)
+    {
+        return Math.Abs(p1.x - p2.x) + Math.Abs(p1.y - p2.y);
+    }
+
+    class UnionFind
+    {
+        private int[] parents;
+
+        public UnionFind(int roomCnt)
+        {
+            parents = new int[roomCnt];
+
+            for (int i = 0; i < roomCnt; i++)
+            {
+                parents[i] = i;
+            }
+        }
+
+        private int Find(int a)
+        {
+            if (parents[a] == a) return a;
+
+            return parents[a] = Find(parents[a]);
+        }
+
+        public bool Union(int a, int b)
+        {
+            int parentA = Find(a);
+			int parentB = Find(b);
+
+            if (parentA == parentB) return false;
+
+			parents[parentA] = parentB;
+            return true;
+        }
+    }
+
 	public float GridSize = 3.0f; //Size of floor and wall tiles in units
 	private int MaxMapSize = 41; //Maximum height and width of tile map
 	private Dictionary<string, GameObject> Prefabs; //Dictionary of all PCG prefabs
@@ -34,7 +92,8 @@ public class PCG : MonoBehaviour
 	
 	private List<Room> roomList = new List<Room>();
 	private List<Vector2Int> availableFloor = new List<Vector2Int>();
-	private List<int> itemIndex = new List<int>();
+    private List<Edge> edgeList = new List<Edge>();
+    private List<int> itemIndex = new List<int>();
 	private List<int> enemyIndex = new List<int>();
 
 	private List<Vector2Int> FloorList = new List<Vector2Int>();
@@ -45,6 +104,9 @@ public class PCG : MonoBehaviour
 	
 	private int amountOfGoldDoors = 0;
 	private bool portalCheck = false;
+
+    [SerializeField] private int roomCnt = 35;
+
 
 	private int bossEnemyCount = 0;
 
@@ -112,7 +174,7 @@ public class PCG : MonoBehaviour
 				availableFloor.Add(new Vector2Int(x, y));
 			}
 		}
-
+		
 		itemList = new List<KeyValuePair<string, int>>()
 		{
 			new KeyValuePair<string, int>("heart", 5),
@@ -129,11 +191,11 @@ public class PCG : MonoBehaviour
 			"ultra",
 		};
 
-		int ItemCummulativeNumber = 0;
+		int itemCumulativeNumber = 0;
 		for(int i = 0; i < itemList.Count; i++)
         {
-			ItemCummulativeNumber += itemList[i].Value;
-			itemIndex.Add(ItemCummulativeNumber);
+			itemCumulativeNumber += itemList[i].Value;
+			itemIndex.Add(itemCumulativeNumber);
 		}
 
 		int totalItemOptions = 0;
@@ -150,46 +212,81 @@ public class PCG : MonoBehaviour
 		//Create the starting tile
 		roomList.Add(new Room(4, new Vector2Int(minimumValue, minimumValue)));
 		MakeRoom(roomList[0], maximumValue, minimumValue);
-
-		//add more pcg logic here..
-		for(int i = 1; i < 35; i++)
+		
+		List<Vector2Int>[] quadrantFloor = new List<Vector2Int>[4]
 		{
+			new List<Vector2Int>(),
+			new List<Vector2Int>(),
+			new List<Vector2Int>(),
+			new List<Vector2Int>()
+		};
+
+		foreach (var pos in availableFloor)
+		{
+			if(pos.y < 0 && pos.x > 0) //1사분면
+				quadrantFloor[0].Add(pos);
+			else if(pos.y < 0 && pos.x < 0) //2사분면
+				quadrantFloor[1].Add(pos);
+			else if(pos.y > 0 && pos.x < 0) //3사분면
+				quadrantFloor[2].Add(pos);
+			else quadrantFloor[3].Add(pos);
+		}
+		
+		//add more pcg logic here..
+		for(int i = 1; i < roomCnt; i++)
+		{
+			int qIndex = i % 4;
+			var quadrant = quadrantFloor[qIndex];
+			var spawnPos = quadrant[RNG.Next(quadrant.Count)];
+			
 			if (i < 5)
 			{
 				int roomSize = RNG.Next(5, 8);
-				roomList.Add(new Room(roomSize, availableFloor[RNG.Next(availableFloor.Count - 1)]));
+				roomList.Add(new Room(roomSize, spawnPos));
 				MakeCrossShapeRoom(roomList[i], maximumValue, minimumValue);
 			}
-			else if (i >= 5 && i < 15)
+			else if (i < 15)
 			{
 				int roomSize = RNG.Next(2, 4);
-				roomList.Add(new Room(roomSize, availableFloor[RNG.Next(availableFloor.Count - 1)]));
+				roomList.Add(new Room(roomSize, spawnPos));
 				MakeRoom(roomList[i], maximumValue, minimumValue); //square
 			}
-			else if (i >= 15 && i < 25)
+			else if (i < 25)
 			{
-				roomList.Add(new Room(3, availableFloor[RNG.Next(availableFloor.Count - 1)]));
+				roomList.Add(new Room(3, spawnPos));
 				MakeTriangleRoom(roomList[i], maximumValue, minimumValue);
 			}
 			else
             {
-				roomList.Add(new Room(4, availableFloor[RNG.Next(availableFloor.Count - 1)]));
+				roomList.Add(new Room(4, spawnPos));
 				MakeDiamondRoom(roomList[i], maximumValue, minimumValue);
 			}
 		}
 
 		//boss Room
 		roomList.Add(new Room(7, new Vector2Int(14,14)));
-		MakeBossRoom(roomList[35], maximumValue, minimumValue);
+		MakeBossRoom(roomList[roomCnt], maximumValue, minimumValue);
 
-		for (int i = 0; i < roomList.Count; i++)
-		{
-			if (i == roomList.Count - 1)
-				break;
-
-			ConnectRoom(roomList[i], roomList[i+1]);
-		}
+        for (int i = 0; i < roomList.Count; i++)
+        {
+            for (int j = i+1; j < roomList.Count; j++)
+            {
+				edgeList.Add(new Edge(i, j, ManHatten(roomList[i].m_startPosition, roomList[j].m_startPosition)));
+            }
+        }
 		
+        edgeList.Sort();
+
+        UnionFind uf = new UnionFind(roomList.Count);
+        
+        foreach(Edge edge in edgeList)
+        {
+	        if (uf.Union(edge.From, edge.To))
+	        {
+		        ConnectRoom(roomList[edge.From], roomList[edge.To]);
+	        }
+        }
+        
 		FillEmptySpaceWithWall(minimumValue, maximumValue);
 		FillEdgeWithWall(minimumValue, maximumValue, 1);
 
@@ -617,7 +714,6 @@ public class PCG : MonoBehaviour
 			Spawn("silverdoor", wallPosition.x, wallPosition.y + 0.5f);
 			wallPosition.x++;
 		}
-
 	}
 
 	void MakeRoom(Room room, int maximumValue, int minimumValue)
@@ -740,7 +836,6 @@ public class PCG : MonoBehaviour
 			SpawnTile(compareX.x, compareY.y);
 			OneTileList.Add(new Vector2Int(compareX.x, compareX.y));
 		}
-
 	}
 
 	void FillEdgeWithWall(int minimumValue_, int maximumValue_, int layer)

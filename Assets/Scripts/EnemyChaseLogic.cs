@@ -59,7 +59,6 @@ public class EnemyChaseLogic : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-		
         Timer += Time.deltaTime;
 		MoveVerticalTimer -= Time.deltaTime;
 		MoveHorizontalTimer -= Time.deltaTime;
